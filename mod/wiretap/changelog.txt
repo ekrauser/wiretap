@@ -1,0 +1,10 @@
+---------------------------------------------------------------------------------------------------
+Version: 1.0.0
+Date: 2026-07-18
+  Features:
+    - Initial release.
+    - Periodic JSON export of logistic network item and robot counts per surface and force.
+    - Per-electric-network production/consumption in watts and accumulator charge/capacity per surface.
+    - Production totals, pollution, research, evolution, rockets, players online.
+    - Snapshot and append-only NDJSON journal output modes.
+    - Remote interface and /wiretap command for live RCON polling.
