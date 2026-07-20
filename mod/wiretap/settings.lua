@@ -9,6 +9,15 @@ data:extend({
     order = "a",
   },
   {
+    type = "int-setting",
+    name = "wiretap-decimals",
+    setting_type = "runtime-global",
+    default_value = 3,
+    minimum_value = 0,
+    maximum_value = 12,
+    order = "ab",
+  },
+  {
     type = "string-setting",
     name = "wiretap-mode",
     setting_type = "runtime-global",

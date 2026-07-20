@@ -21,8 +21,13 @@ Per **surface** (every planet, moon, and space platform is a surface):
 
 - **Power, per electric network and totals**: production and consumption in watts
   (5-second average, same as the in-game GUI), optionally broken down by entity type
-  (how much your steam engines make, how much your labs eat), plus accumulator
-  charge/capacity in joules.
+  (how much your steam engines make, how much your labs eat) with a matching
+  `count_by_entity` (how many of each exist on the surface, all forces combined;
+  zero-count types are omitted), plus accumulator charge/capacity in joules.
+  Networks that only contain accumulators are listed with zero flows so totals and
+  networks always agree; all-zero networks (isolated poles) are dropped. Space
+  platforms report their pole-less grid as one network keyed `"global"`
+  (needs Factorio ≥ 2.0.48; older runtimes fall back to charge-only entries).
 - **Logistics, per force**: item counts aggregated across all logistic networks
   (optionally broken down by quality), robot counts (logistic/construction,
   total/available), network count.
@@ -42,7 +47,7 @@ Plus: game tick, play time, online player names, evolution factor per surface.
 ```json
 {
   "meta": {"tick": 12345, "game_time_seconds": 205, "player_count": 1,
-            "players_online": ["kraus"], "interval_seconds": 10, "mod_version": "1.0.0"},
+            "players_online": ["kraus"], "interval_seconds": 10, "mod_version": "1.0.3"},
   "surfaces": {
     "nauvis": {
       "index": 1,
@@ -57,7 +62,8 @@ Plus: game tick, play time, online player names, evolution factor per surface.
                  "accumulator_charge_joules": 2.5e7, "accumulator_capacity_joules": 5e7,
                  "production_by_entity": {"steam-engine": 1.8e6},
                  "consumption_by_entity": {"assembling-machine-2": 9e5, "lab": 8e5}}
-        }
+        },
+        "count_by_entity": {"steam-engine": 20, "assembling-machine-2": 45, "lab": 12}
       },
       "logistics": {
         "player": {
@@ -108,7 +114,7 @@ cp -r mod/wiretap ~/.factorio/mods/wiretap
 Option B — zip:
 
 ```bash
-./scripts/package.sh          # builds dist/wiretap_1.0.0.zip
+./scripts/package.sh          # builds dist/wiretap_<version>.zip
 ```
 
 then drop the zip into your mods folder:
@@ -124,14 +130,27 @@ interval (default 10 s) the snapshot appears at:
 - Windows: `%APPDATA%\Factorio\script-output\wiretap\stats.json`
 - Linux: `~/.factorio/script-output/wiretap/stats.json`
 
-All knobs live in **Settings → Mod settings → Map**: interval, output mode
-(snapshot / journal / both), filenames, and per-category toggles (logistics, quality
-breakdown, power, per-entity power breakdown, accumulator scan, production totals,
-pollution). Changes apply immediately, no restart needed.
+All knobs live in **Settings → Mod settings → Map**: interval, number precision
+(exported values are rounded to 3 decimal places by default to keep the file small),
+output mode (snapshot / journal / both), filenames, and per-category toggles
+(logistics, quality breakdown, power, per-entity power breakdown, accumulator scan,
+production totals, science pack rates, pollution). Changes apply immediately, no
+restart needed. Research progress is always exported.
 
-> **Multiplayer note:** "Write on server only" is on by default, so only the host /
-> dedicated server writes the file. If no file appears in an unusual setup, try
-> turning it off.
+Two quirks in the exported data are the game's own, passed through faithfully:
+
+- Production totals contain an item literally named `science`: a hidden vanilla
+  pseudo-item Factorio 2.0 uses to chart *effective* research throughput
+  (including lab/research productivity). It never matches the `science_packs`
+  section and is genuinely useful as your true science-per-minute.
+- Logistic item counts can go briefly **negative** (e.g. `nutrients: -2`):
+  robots over-reserve items they are flying to pick up. Officially "not a bug";
+  counts self-correct when the robot arrives. Clamp on the consumer side if it
+  bothers your dashboard.
+
+> **Multiplayer note:** "Write on server only" is on by default, so in multiplayer
+> only the host / dedicated server writes the file. The setting is ignored in
+> single player (the file is always written there).
 
 > **Performance note:** each export scans electric poles and accumulators on every
 > surface. At the default 10 s interval this is unnoticeable on normal bases; on a
@@ -268,6 +287,8 @@ scrape_configs:
 
 Useful series: `factorio_power_production_watts{surface=…}`,
 `factorio_logistic_item_count{item=…}`, `factorio_accumulator_charge_joules`,
+`factorio_entity_count{surface=…,entity=…}` (divide watts by it for per-machine
+utilization),
 `factorio_science_pack_consumption_per_minute{item=…}` (your live SPM),
 `factorio_technologies_researched`, `factorio_evolution_factor`,
 `factorio_stats_age_seconds` (alert if it grows — the game is paused, crashed, or

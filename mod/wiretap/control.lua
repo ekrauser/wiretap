@@ -4,7 +4,9 @@
 --
 -- Factorio 2.0 API facts this file relies on:
 --  * helpers.write_file targets the script-output folder; for_player = 0
---    restricts the write to the server.
+--    restricts the write to the server's output "if present" — in single
+--    player there is no server and the write is silently skipped, so 0 is
+--    only passed when game.is_multiplayer().
 --  * Electric network statistics mirror GUI column positions: category
 --    "input" is CONSUMPTION, "output" is PRODUCTION, "storage" is
 --    accumulator charge. Flow values are normalized per tick, so
@@ -13,13 +15,15 @@
 --    production, "output" is consumption.
 --  * LuaLogisticNetwork.get_contents() returns an array of
 --    {name=..., quality=..., count=...}.
---  * electric_network_statistics is only readable on electric poles, so
+--  * electric_network_statistics is readable on electric poles ONLY, so
 --    networks are enumerated by scanning poles and deduping on
---    electric_network_id.
+--    electric_network_id. Surfaces with a global electric network (space
+--    platforms) instead expose surface.global_electric_network_statistics
+--    (2.0.48+), reported as network "global".
 --  * on_load may only read `storage`, so the export interval is mirrored
 --    into storage for timer re-registration on load.
 
-local MOD_VERSION = "1.0.0"
+local MOD_VERSION = "1.0.3"
 local SETTING_PREFIX = "wiretap-"
 local PRECISION = defines.flow_precision_index.five_seconds
 
@@ -33,15 +37,50 @@ local function nonempty(t)
   return t
 end
 
+-- Full float64 precision is dashboard noise and inflates the payload
+-- (table_to_json prints shortest-roundtrip, so rounded values serialize
+-- short); round fractional numbers in place before serialization.
+local function round_floats(t, mult)
+  for k, v in pairs(t) do
+    local tv = type(v)
+    if tv == "table" then
+      round_floats(v, mult)
+    elseif tv == "number" and v % 1 ~= 0 then
+      t[k] = math.floor(v * mult + 0.5) / mult
+    end
+  end
+end
+
 -- --------------------------------------------------------------------------
 -- Power: one entry per electric network, plus per-surface totals.
 -- --------------------------------------------------------------------------
 
 local function collect_power(surface, include_breakdown, include_accumulators)
-  local reps = {} -- network id -> representative pole
-  for _, pole in pairs(surface.find_entities_filtered{type = "electric-pole"}) do
-    local id = pole.electric_network_id
-    if id and not reps[id] then reps[id] = pole end
+  -- Surfaces with a global electric network (space platforms) expose
+  -- statistics on the surface itself (2.0.48+), not on any entity —
+  -- electric_network_statistics is readable on electric poles only. The
+  -- surface reads are pcall-guarded so older 2.0.x runtimes degrade to the
+  -- charge-only accumulator entries. On global-network surfaces pole
+  -- enumeration is skipped: any pole there joins the same global network
+  -- and would double-count.
+  local reps = {} -- network key (string) -> statistics object
+  local ok_g, has_global = pcall(function() return surface.has_global_electric_network end)
+  local is_global = ok_g and has_global or false
+  if is_global then
+    local ok_s, gstats = pcall(function() return surface.global_electric_network_statistics end)
+    if ok_s and gstats then reps["global"] = gstats end
+  else
+    for _, pole in pairs(surface.find_entities_filtered{type = "electric-pole"}) do
+      local id = pole.electric_network_id
+      if id and not reps[tostring(id)] then
+        reps[tostring(id)] = pole.electric_network_statistics
+      end
+    end
+  end
+
+  local accumulators
+  if include_accumulators then
+    accumulators = surface.find_entities_filtered{type = "accumulator"}
   end
 
   local totals = {
@@ -52,9 +91,9 @@ local function collect_power(surface, include_breakdown, include_accumulators)
     network_count = 0,
   }
   local networks = {}
+  local seen_names = include_breakdown and {} or nil
 
-  for id, pole in pairs(reps) do
-    local stats = pole.electric_network_statistics
+  for key, stats in pairs(reps) do
     local production, consumption = 0, 0
     local prod_by, cons_by = {}, {}
     for name in pairs(stats.output_counts) do
@@ -62,14 +101,14 @@ local function collect_power(surface, include_breakdown, include_accumulators)
         name = name, category = "output", precision_index = PRECISION,
       } * 60
       production = production + watts
-      if include_breakdown then prod_by[name] = watts end
+      if include_breakdown then prod_by[name] = watts; seen_names[name] = true end
     end
     for name in pairs(stats.input_counts) do
       local watts = stats.get_flow_count{
         name = name, category = "input", precision_index = PRECISION,
       } * 60
       consumption = consumption + watts
-      if include_breakdown then cons_by[name] = watts end
+      if include_breakdown then cons_by[name] = watts; seen_names[name] = true end
     end
 
     local net = {
@@ -82,29 +121,68 @@ local function collect_power(surface, include_breakdown, include_accumulators)
       net.production_by_entity = nonempty(prod_by)
       net.consumption_by_entity = nonempty(cons_by)
     end
-    networks[tostring(id)] = net
+    networks[key] = net
 
     totals.production_watts = totals.production_watts + production
     totals.consumption_watts = totals.consumption_watts + consumption
-    totals.network_count = totals.network_count + 1
   end
 
   if include_accumulators then
-    for _, acc in pairs(surface.find_entities_filtered{type = "accumulator"}) do
+    for _, acc in pairs(accumulators) do
       local charge = acc.energy
       local capacity = acc.electric_buffer_size or 0
       totals.accumulator_charge_joules = totals.accumulator_charge_joules + charge
       totals.accumulator_capacity_joules = totals.accumulator_capacity_joules + capacity
       local id = acc.electric_network_id
-      local net = id and networks[tostring(id)]
-      if net then
+      if id then
+        -- On a global-network surface all accumulators belong to the one
+        -- global network; elsewhere, networks reachable only through
+        -- accumulators (no readable flow statistics) still get an entry,
+        -- so totals and networks agree.
+        local key = (is_global and networks["global"]) and "global" or tostring(id)
+        local net = networks[key]
+        if not net then
+          net = {
+            production_watts = 0,
+            consumption_watts = 0,
+            accumulator_charge_joules = 0,
+            accumulator_capacity_joules = 0,
+          }
+          networks[key] = net
+        end
         net.accumulator_charge_joules = net.accumulator_charge_joules + charge
         net.accumulator_capacity_joules = net.accumulator_capacity_joules + capacity
       end
     end
   end
 
-  return {totals = totals, networks = nonempty(networks)}
+  -- Drop dead networks (isolated poles): nothing flowing, nothing stored.
+  for key, net in pairs(networks) do
+    if net.production_watts == 0 and net.consumption_watts == 0
+        and net.accumulator_capacity_joules == 0 then
+      networks[key] = nil
+    end
+  end
+  for _ in pairs(networks) do
+    totals.network_count = totals.network_count + 1
+  end
+
+  local out = {totals = totals, networks = nonempty(networks)}
+
+  -- Entity counts for the types seen in the power breakdown, so
+  -- watts-per-type can be turned into utilization per machine.
+  if seen_names and next(seen_names) ~= nil then
+    local counts = {}
+    for name in pairs(seen_names) do
+      local ok, n = pcall(function()
+        return surface.count_entities_filtered{name = name}
+      end)
+      if ok and n and n > 0 then counts[name] = n end
+    end
+    out.count_by_entity = nonempty(counts)
+  end
+
+  return out
 end
 
 -- --------------------------------------------------------------------------
@@ -178,6 +256,11 @@ local function collect_science_packs(force)
       end
     end
     for name, pack in pairs(packs) do
+      -- A pack only consumed (imported) or only produced on this surface
+      -- would otherwise omit one of the totals; emit 0 so the schema is
+      -- uniform for consumers.
+      pack.produced_total = pack.produced_total or 0
+      pack.consumed_total = pack.consumed_total or 0
       pack.produced_per_minute = istats.get_flow_count{
         name = name, category = "input", precision_index = PRECISION_1M,
       }
@@ -304,7 +387,7 @@ local function build_snapshot()
     surfaces[surface.name] = s
   end
 
-  return {
+  local snapshot = {
     meta = {
       mod_version = MOD_VERSION,
       tick = game.tick,
@@ -317,12 +400,21 @@ local function build_snapshot()
     surfaces = surfaces,
     forces = collect_forces(include_production, include_science),
   }
+
+  local decimals = cfg("decimals")
+  if decimals and decimals >= 0 and decimals <= 12 then
+    round_floats(snapshot, 10 ^ decimals)
+  end
+  return snapshot
 end
 
 local function do_export()
   local ok, err = pcall(function()
     local json = helpers.table_to_json(build_snapshot())
-    local target = cfg("server-only") and 0 or nil
+    -- for_player = 0 restricts the write to the server's output "if present";
+    -- in single player there is no server, so the write is silently skipped.
+    -- Only honor the setting in actual multiplayer.
+    local target = (cfg("server-only") and game.is_multiplayer()) and 0 or nil
     local mode = cfg("mode")
     if mode == "snapshot" or mode == "both" then
       helpers.write_file(cfg("filename"), json, false, target)

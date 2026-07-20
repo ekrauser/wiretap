@@ -71,6 +71,7 @@ def watch_file(path: Path, poll_seconds: float, on_update) -> None:
     """
     last_sig: tuple[float, int] | None = None
     warned_missing = False
+    consecutive_failures = 0
     while True:
         try:
             st = path.stat()
@@ -86,10 +87,16 @@ def watch_file(path: Path, poll_seconds: float, on_update) -> None:
         if sig != last_sig:
             try:
                 data = json.loads(path.read_text(encoding="utf-8"))
-            except (json.JSONDecodeError, OSError, UnicodeDecodeError):
+            except (json.JSONDecodeError, OSError, UnicodeDecodeError) as exc:
                 STATE.parse_errors += 1
+                consecutive_failures += 1
+                if consecutive_failures % 25 == 0:  # a mid-write race clears in
+                    print(f"[bridge] {path} still not parseable after "  # 1-2 polls
+                          f"{consecutive_failures} attempts ({exc.__class__.__name__})"
+                          " — is something else writing this file?", flush=True)
                 time.sleep(min(poll_seconds, 0.5))  # likely mid-write; retry soon
                 continue
+            consecutive_failures = 0
             last_sig = sig
             STATE.set(data, st.st_mtime)
             try:
@@ -171,6 +178,8 @@ def render_metrics(snapshot: dict | None, updated_at: float | None) -> str:
             ):
                 if key in net:
                     emit(metric, ns, net[key])
+        for ename, cnt in _d(power.get("count_by_entity")).items():
+            emit("entity_count", {"surface": sname, "entity": ename}, cnt)
 
         for fname, log in _d(surf.get("logistics")).items():
             fs = {"surface": sname, "force": fname}
@@ -223,15 +232,18 @@ class Handler(BaseHTTPRequestHandler):
     server_version = "wiretap-bridge/1.0"
 
     def _send(self, code: int, body: bytes, ctype: str) -> None:
-        self.send_response(code)
-        self.send_header("Content-Type", ctype)
-        self.send_header("Content-Length", str(len(body)))
-        self.send_header("Access-Control-Allow-Origin", "*")
-        snapshot, updated_at = STATE.get()
-        if updated_at is not None:
-            self.send_header("X-Stats-Age-Seconds", f"{time.time() - updated_at:.1f}")
-        self.end_headers()
-        self.wfile.write(body)
+        try:
+            self.send_response(code)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Access-Control-Allow-Origin", "*")
+            snapshot, updated_at = STATE.get()
+            if updated_at is not None:
+                self.send_header("X-Stats-Age-Seconds", f"{time.time() - updated_at:.1f}")
+            self.end_headers()
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError):
+            pass  # client went away mid-response; not worth a traceback
 
     def do_GET(self) -> None:  # noqa: N802 (stdlib naming)
         path = self.path.split("?", 1)[0].rstrip("/") or "/"
@@ -276,6 +288,24 @@ def _slug(s: str) -> str:
     return re.sub(r"[^a-z0-9_]+", "_", s.lower()).strip("_")
 
 
+def _slug_map(names) -> dict[str, str]:
+    """Stable name -> slug map; distinct names that slug identically
+    (e.g. "platform-1" and "platform 1") get deterministic numeric suffixes
+    so topics and unique_ids never collide."""
+    out: dict[str, str] = {}
+    used: set[str] = set()
+    for name in sorted(set(names)):
+        base = _slug(name) or "surface"
+        slug = base
+        n = 2
+        while slug in used:
+            slug = f"{base}_{n}"
+            n += 1
+        used.add(slug)
+        out[name] = slug
+    return out
+
+
 class MqttPublisher:
     def __init__(self, args) -> None:
         try:
@@ -312,6 +342,15 @@ class MqttPublisher:
         benign race with the watcher thread at worst duplicates a retained
         config message.
         """
+        rc = args[1] if len(args) > 1 else 0  # (flags, rc[, properties]) in 1.x/2.x
+        failed = getattr(rc, "is_failure", False)  # paho 2.x ReasonCode
+        if not isinstance(failed, bool):
+            failed = bool(failed)
+        if not failed and isinstance(rc, int) and rc != 0:  # paho 1.x int code
+            failed = True
+        if failed:
+            print(f"[bridge] MQTT connection refused by broker: {rc}", flush=True)
+            return
         client.publish(f"{self.prefix}/availability", "online", retain=True)
         self.discovered.clear()
         print("[bridge] MQTT connected", flush=True)
@@ -325,7 +364,8 @@ class MqttPublisher:
 
     def _discover(self, object_id: str, name: str, state_topic: str,
                   value_template: str, unit: str | None = None,
-                  device_class: str | None = None, icon: str | None = None) -> None:
+                  device_class: str | None = None, icon: str | None = None,
+                  state_class: str | None = "measurement") -> None:
         if object_id in self.discovered:
             return
         self.discovered.add(object_id)
@@ -335,7 +375,6 @@ class MqttPublisher:
             "state_topic": f"{self.prefix}/{state_topic}",
             "value_template": value_template,
             "availability_topic": f"{self.prefix}/availability",
-            "state_class": "measurement",
             "device": {
                 "identifiers": ["wiretap"],
                 "name": "Factorio (wiretap)",
@@ -348,6 +387,8 @@ class MqttPublisher:
             cfg["device_class"] = device_class
         if icon:
             cfg["icon"] = icon
+        if state_class:
+            cfg["state_class"] = state_class
         self.client.publish(
             f"homeassistant/sensor/wiretap/{object_id}/config",
             json.dumps(cfg), retain=True)
@@ -368,8 +409,15 @@ class MqttPublisher:
                     items_total[item] = items_total.get(item, 0) + int(count)
         self._pub("items", items_total)
 
+        # One collision-free slug per surface name, stable across publishes.
+        surface_names = set(_d(snap.get("surfaces")))
+        for force in _d(snap.get("forces")).values():
+            surface_names |= set(_d(force.get("evolution")))
+            surface_names |= set(_d(force.get("science_packs")))
+        slugs = _slug_map(surface_names)
+
         for sname, surf in _d(snap.get("surfaces")).items():
-            slug = _slug(sname)
+            slug = slugs[sname]
             power = _d(_d(surf.get("power")).get("totals"))
             if power:
                 payload = dict(power)
@@ -400,7 +448,7 @@ class MqttPublisher:
 
         for fname, force in _d(snap.get("forces")).items():
             for sname, evo in _d(force.get("evolution")).items():
-                self._pub(f"evolution/{_slug(fname)}/{_slug(sname)}",
+                self._pub(f"evolution/{_slug(fname)}/{slugs[sname]}",
                           {"evolution": evo})
 
         # Science: per-surface pack rates summed across forces (usually just
@@ -420,7 +468,7 @@ class MqttPublisher:
                     agg["total_produced_per_minute"] += v.get("produced_per_minute", 0) or 0
                     agg["total_consumed_per_minute"] += v.get("consumed_per_minute", 0) or 0
         for sname, agg in science.items():
-            slug = _slug(sname)
+            slug = slugs[sname]
             self._pub(f"science/{slug}", agg)
             if self.args.ha_discovery:
                 self._discover(f"{slug}_science_rate", f"{sname} science consumed/min",
@@ -432,11 +480,13 @@ class MqttPublisher:
             self._discover("players_online", "Factorio players online", "meta",
                            "{{ value_json.player_count }}", icon="mdi:account-group")
             self._discover("game_tick", "Factorio game tick", "meta",
-                           "{{ value_json.tick }}", icon="mdi:clock-fast")
+                           "{{ value_json.tick }}", icon="mdi:clock-fast",
+                           state_class="total_increasing")
             for item in self.watch_items:
                 self._discover(
                     f"item_{_slug(item)}", f"Factorio {item} in logistics", "items",
-                    "{{ value_json['%s'] | default(0) }}" % item,
+                    # json.dumps quotes/escapes the name into a valid Jinja literal
+                    "{{ value_json[%s] | default(0) }}" % json.dumps(item),
                     icon="mdi:package-variant-closed")
 
 

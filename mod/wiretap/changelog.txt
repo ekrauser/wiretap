@@ -1,4 +1,43 @@
 ---------------------------------------------------------------------------------------------------
+Version: 1.0.3
+Date: 2026-07-19
+  Features:
+    - Space platform power now works: surfaces with a global electric network (Factorio 2.0.48+)
+      are read via surface.global_electric_network_statistics and reported as network "global",
+      with accumulator charge attached to it. Entity-based reads can never work there
+      (electric_network_statistics is electric-pole-only), so the 1.0.2 hub/accumulator
+      candidate scan was removed.
+  Changes:
+    - Science setting description no longer claims to gate research progress; research state is
+      always exported.
+---------------------------------------------------------------------------------------------------
+Version: 1.0.2
+Date: 2026-07-18
+  Features:
+    - New "Number precision" setting (default 3): exported numbers are rounded to that many
+      decimal places instead of full float64 precision, which meaningfully shrinks the JSON.
+    - Per-surface count_by_entity under power: how many entities of each type appear in the
+      power breakdown, so watts per type can be read as utilization per machine.
+    - On surfaces where no electric pole or hub yields statistics (space platforms), accumulators
+      are tried as network representatives as a fallback.
+  Changes:
+    - Science pack entries now always contain produced_total and consumed_total (0 instead of
+      an absent key), so consumers need no null checks.
+    - Networks reachable only through accumulators get a network entry (zero flows, real
+      charge/capacity), so power.totals and power.networks agree.
+    - All-zero networks (isolated poles: no production, consumption or storage) are no longer
+      listed; network_count counts the listed networks.
+---------------------------------------------------------------------------------------------------
+Version: 1.0.1
+Date: 2026-07-18
+  Bugfixes:
+    - "Write on server only" made every export a silent no-op in single player (for_player=0 only
+      writes "if a server is present"). The setting is now applied only in actual multiplayer;
+      in single player the file is always written.
+  Features:
+    - Space platforms now report power statistics: the platform hub is scanned as an electric
+      network representative, since platforms have no electric poles.
+---------------------------------------------------------------------------------------------------
 Version: 1.0.0
 Date: 2026-07-18
   Features:
