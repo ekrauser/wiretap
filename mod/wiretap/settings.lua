@@ -13,9 +13,16 @@ data:extend({
     name = "wiretap-decimals",
     setting_type = "runtime-global",
     default_value = 3,
-    minimum_value = 0,
+    minimum_value = 1,
     maximum_value = 12,
     order = "ab",
+  },
+  {
+    type = "bool-setting",
+    name = "wiretap-spread",
+    setting_type = "runtime-global",
+    default_value = true,
+    order = "ac",
   },
   {
     type = "string-setting",
@@ -30,6 +37,7 @@ data:extend({
     name = "wiretap-filename",
     setting_type = "runtime-global",
     default_value = "wiretap/stats.json",
+    auto_trim = true,
     order = "c",
   },
   {
@@ -37,6 +45,7 @@ data:extend({
     name = "wiretap-journal-filename",
     setting_type = "runtime-global",
     default_value = "wiretap/stats.ndjson",
+    auto_trim = true,
     order = "d",
   },
   {
@@ -76,10 +85,10 @@ data:extend({
   },
   {
     type = "bool-setting",
-    name = "wiretap-accumulators",
+    name = "wiretap-power-flow",
     setting_type = "runtime-global",
     default_value = true,
-    order = "j",
+    order = "ia",
   },
   {
     type = "bool-setting",
@@ -87,6 +96,13 @@ data:extend({
     setting_type = "runtime-global",
     default_value = true,
     order = "k",
+  },
+  {
+    type = "bool-setting",
+    name = "wiretap-production-quality",
+    setting_type = "runtime-global",
+    default_value = false,
+    order = "k0",
   },
   {
     type = "bool-setting",
@@ -101,5 +117,26 @@ data:extend({
     setting_type = "runtime-global",
     default_value = true,
     order = "l",
+  },
+  {
+    type = "bool-setting",
+    name = "wiretap-platforms",
+    setting_type = "runtime-global",
+    default_value = true,
+    order = "m",
+  },
+  {
+    type = "bool-setting",
+    name = "wiretap-kills",
+    setting_type = "runtime-global",
+    default_value = true,
+    order = "n",
+  },
+  {
+    type = "bool-setting",
+    name = "wiretap-build-counts",
+    setting_type = "runtime-global",
+    default_value = false,
+    order = "o",
   },
 })
