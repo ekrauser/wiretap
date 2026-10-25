@@ -1,5 +1,7 @@
-# Secret scanning on every push and PR. Nothing in this repo should ever look
-# like a credential: MQTT passwords are passed to the bridge at runtime.
+# Secret scanning on every push to the default branch and every pull request.
+# Free for personal repositories (GITLEAKS_LICENSE is only needed for orgs).
+# Added account-wide on 2026-09-21 after a history sweep found committed keys in
+# older repos. A repo-specific allowlist, if ever needed, goes in .gitleaks.toml.
 name: gitleaks
 
 on:
