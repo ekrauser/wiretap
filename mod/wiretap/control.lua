@@ -200,19 +200,31 @@ end
 -- export after a load.
 -- --------------------------------------------------------------------------
 
-local sampled = {}       -- surface index -> array of {key=, net=}
-local sampled_min = {}   -- surface index -> key -> minimum satisfaction seen
+local sampled = {}            -- surface index -> array of {key=, net=}
+local sampled_min = {}        -- surface index -> key -> minimum satisfaction seen
+local sampled_min_weighted = {} -- surface index -> minimum demand-weighted satisfaction seen
 
 local function sample_satisfaction()
   for surface_index, list in pairs(sampled) do
     local mins = sampled_min[surface_index]
     if not mins then mins = {}; sampled_min[surface_index] = mins end
+    local satisfied, demanded = 0, 0
     for _, rec in pairs(list) do
       if rec.net.valid then
-        local s = rec.net.flow_last_tick.consumption_satisfaction
+        local flow = rec.net.flow_last_tick
+        local s = flow.consumption_satisfaction
         local m = mins[rec.key]
         if m == nil or s < m then mins[rec.key] = s end
+        satisfied = satisfied + s * flow.maximum_consumption
+        demanded = demanded + flow.maximum_consumption
       end
+    end
+    if demanded > 0 then
+      -- The surface figure is demand-weighted so a small unpowered block does
+      -- not read as a brownout of the whole surface.
+      local weighted = satisfied / demanded
+      local m = sampled_min_weighted[surface_index]
+      if m == nil or weighted < m then sampled_min_weighted[surface_index] = weighted end
     end
   end
 end
@@ -220,6 +232,7 @@ end
 local function reset_samples(surface_index, list)
   sampled[surface_index] = list
   sampled_min[surface_index] = {}
+  sampled_min_weighted[surface_index] = nil
 end
 
 -- --------------------------------------------------------------------------
@@ -279,7 +292,6 @@ local function collect_power(surface, include_breakdown, include_flow)
     totals.accumulator_discharge_watts = 0
   end
   local satisfied, demanded = 0, 0
-  local min_satisfaction
   local networks = {}
   local seen_names = include_breakdown and {} or nil
   local mins = sampled_min[surface.index] or {}
@@ -344,11 +356,8 @@ local function collect_power(surface, include_breakdown, include_flow)
           transfer_watts = flow.total_transfer * 60,
         }
         local m = mins[key]
-        if m ~= nil then
-          if flow.consumption_satisfaction < m then m = flow.consumption_satisfaction end
-          f.consumption_satisfaction_min = m
-          if min_satisfaction == nil or m < min_satisfaction then min_satisfaction = m end
-        end
+        if m == nil or flow.consumption_satisfaction < m then m = flow.consumption_satisfaction end
+        f.consumption_satisfaction_min = m
         entry.flow = f
         totals.maximum_production_watts = totals.maximum_production_watts + flow.maximum_production * 60
         totals.maximum_consumption_watts = totals.maximum_consumption_watts + flow.maximum_consumption * 60
@@ -370,9 +379,12 @@ local function collect_power(surface, include_breakdown, include_flow)
 
   if include_flow then
     -- Demand-weighted satisfaction across the surface: 1 = every consumer
-    -- got what it asked for, lower = brownout somewhere.
-    totals.consumption_satisfaction = demanded > 0 and (satisfied / demanded) or 1
-    if min_satisfaction ~= nil then totals.consumption_satisfaction_min = min_satisfaction end
+    -- got what it asked for, lower = brownout somewhere. The minimum is the
+    -- lowest weighted value sampled since the previous export (including now).
+    local current = demanded > 0 and (satisfied / demanded) or 1
+    totals.consumption_satisfaction = current
+    local m = sampled_min_weighted[surface.index]
+    totals.consumption_satisfaction_min = (m ~= nil and m < current) and m or current
   end
   reset_samples(surface.index, next_sampled)
 

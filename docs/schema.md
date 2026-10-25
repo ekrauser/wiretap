@@ -1,7 +1,7 @@
 # Snapshot schema
 
 Reference for the JSON the mod writes (`script-output/wiretap/stats.json`, one object
-per line in the NDJSON journal, and the `/wiretap` RCON reply). Version 1.1.0.
+per line in the NDJSON journal, and the `/wiretap` RCON reply). Version 1.1.1.
 
 Conventions:
 
@@ -60,7 +60,7 @@ Conventions:
 | `accumulator_charge_joules`, `accumulator_capacity_joules` | summed over listed networks |
 | `network_count` | number of listed networks |
 | `consumption_satisfaction` | demand-weighted satisfaction across networks on the export tick; 1 when there is no demand (setting: power flow) |
-| `consumption_satisfaction_min` | lowest per-network satisfaction sampled once a second since the previous export; absent until the sampler has run (setting: power flow) |
+| `consumption_satisfaction_min` | lowest demand-weighted satisfaction of the surface sampled once a second since the previous export, including the export tick itself (setting: power flow) |
 | `maximum_production_watts`, `maximum_consumption_watts`, `solar_watts` | summed last-tick values (setting: power flow) |
 | `accumulator_charge_watts`, `accumulator_discharge_watts` | power flowing into / out of accumulators last tick, summed (setting: power flow) |
 
@@ -78,7 +78,7 @@ attached (no statistics, no capacity, no demand) are dropped.
 | `sub_network_count` | pole groups in this network |
 | `production_by_entity`, `consumption_by_entity` | watts per entity prototype name, including names with 0 W that the statistics remember (setting: power breakdown) |
 | `flow.consumption_satisfaction` | fraction of demand met last tick; below 1 is a brownout |
-| `flow.consumption_satisfaction_min` | lowest value sampled since the previous export |
+| `flow.consumption_satisfaction_min` | lowest value of this network sampled since the previous export, including the export tick |
 | `flow.production_satisfaction` | fraction of available production used last tick |
 | `flow.maximum_production_watts` | available production last tick, incl. accumulator discharge |
 | `flow.maximum_consumption_watts` | demand last tick, incl. accumulator charging |

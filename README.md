@@ -27,7 +27,9 @@ Per **surface** (every planet, moon, and space platform is a surface):
   joules, and a `flow` block from the last tick: `consumption_satisfaction` (1 means
   every consumer got what it asked for, lower is a brownout) plus
   `consumption_satisfaction_min`, the lowest value seen by a once-per-second sampler
-  since the previous export, so a two-second brownout between exports still shows;
+  since the previous export, so a two-second brownout between exports still shows
+  (the surface-level minimum is demand-weighted, so a small unpowered block does not
+  flag the whole planet);
   `production_satisfaction`, `maximum_production_watts` (what generators and
   accumulators could deliver), `maximum_consumption_watts` (demand), solar offered
   and used, primary/secondary generation used, accumulator charge and discharge
@@ -261,7 +263,8 @@ python3 companion/wiretap_bridge.py \
 Sensors then appear in HA automatically under one "Factorio (wiretap)" device
 (model = game version, sw version = mod version). Per surface: power production and
 consumption (W), power satisfaction and its interval minimum (%), a **brownout**
-binary sensor, headroom (W), solar output, accumulator charge (%), accumulator
+binary sensor (on when more than 5% of demand went unmet since the previous export;
+`--brownout-below` tunes it), headroom (W), solar output, accumulator charge (%), accumulator
 charging and discharging (W), pollution, darkness, evolution (%), logistic and
 construction robots available, kills and losses per minute plus an **under attack**
 binary sensor, science consumed per minute (1 and 10 minute windows). Per force:
@@ -474,6 +477,10 @@ so a bridge restart does not reset it). Every family carries `HELP` and `TYPE` l
 
 - `./scripts/test.sh` runs the mod under a mocked Factorio 2.1 runtime with Lua 5.2
   (`tests/lua/`) and the bridge's unit tests (`tests/python/`). No game needed.
+- `./scripts/smoke-headless.py --download` runs the packaged mod inside the real
+  (free) headless Factorio server on a fresh map and checks the snapshot;
+  `./scripts/check-save.py` does the same with your own save and mods. See
+  [docs/testing.md](docs/testing.md).
 - `./scripts/package.sh` builds `dist/wiretap_<version>.zip` for the mod portal.
 - [docs/releasing.md](docs/releasing.md) covers versioning, the portal upload and
   local deployment; [docs/schema.md](docs/schema.md) is the field reference.

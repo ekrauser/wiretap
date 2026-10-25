@@ -1,4 +1,14 @@
 ---------------------------------------------------------------------------------------------------
+Version: 1.1.1
+Date: 2026-10-25
+  Changes:
+    - The surface-level consumption_satisfaction_min is now the lowest demand-weighted satisfaction
+      sampled since the previous export (and is always present), so one small unpowered block no longer
+      flags the whole surface as browned out. Per-network minimums are unchanged.
+  Bugfixes:
+    - Verified against the real engine (Factorio 2.1.23 headless server, a fresh map and a 137-hour
+      Space Age save): no fixes needed in the mod; the test harness scripts are now part of the repo.
+---------------------------------------------------------------------------------------------------
 Version: 1.1.0
 Date: 2026-10-24
   Features:

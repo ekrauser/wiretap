@@ -5,4 +5,5 @@ plugins:
 nav:
   - Home: index.md
   - Snapshot schema: schema.md
+  - Testing: testing.md
   - Testing and releasing: releasing.md

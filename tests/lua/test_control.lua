@@ -22,9 +22,12 @@ local passed = 0
 local function check(cond, msg) if not cond then error("FAIL: " .. msg, 2) end passed = passed + 1 end
 local function has(s, needle) return s:find(needle, 1, true) ~= nil end
 
+-- the version under test comes from info.json, like the mod reads it from the mod list
+local INFO_VERSION = assert(io.open(here .. "/../../mod/wiretap/info.json")):read("*a"):match('"version":%s*"([^"]+)"')
+
 local function boot(opts)
   opts = opts or {}
-  M.install{settings = opts.settings or defaults(), removed_entities = {["gone-entity"] = true}}
+  M.install{settings = opts.settings or defaults(), removed_entities = {["gone-entity"] = true}, mod_version = INFO_VERSION}
   local g, refs = world{multiplayer = opts.multiplayer}
   game = g
   if opts.mutate then opts.mutate(g, refs) end
@@ -80,9 +83,9 @@ do
   check(f.for_player == nil, "single player never passes for_player")
   local j = f.data
   check(not j:find("%d%.%d%d%d%d%d%d%d%d"), "no over-long float expansions")
-  check(has(j, '"mod_version":"1.1.0"'), "mod version comes from script.active_mods")
+  check(has(j, '"mod_version":"' .. INFO_VERSION .. '"'), "mod version comes from script.active_mods")
   check(has(j, '"game_version":"2.1.23"') and has(j, '"game_speed":1') and has(j, '"tick_paused":false'), "game meta")
-  check(has(j, '"mods":{"base":"2.1.23","wiretap":"1.1.0"}'), "active mods in meta")
+  check(has(j, '"mods":{"base":"2.1.23","wiretap":"' .. INFO_VERSION .. '"}'), "active mods in meta")
   check(has(j, '"features":{') and has(j, '"quality":true'), "feature flags in meta")
   check(has(j, '"players":{"drkraus":{"afk_seconds":20,"online_seconds":600,"surface":"nauvis"}}'), "player details")
   check(has(j, '"game_time_seconds":493800'), "play time from ticks_played")
@@ -97,7 +100,7 @@ do
   check(has(j, '"accumulator_charge_joules":25000000'), "accumulator charge from flow_last_tick")
   check(has(j, '"network_count":2'), "never-used network (isolated pole) dropped from nauvis")
   check(has(j, '"consumption_satisfaction":0.95'), "satisfaction exported")
-  check(not has(j, 'consumption_satisfaction_min'), "no interval minimum before any sample")
+  check(has(j, '"consumption_satisfaction_min":0.95'), "interval minimum equals the current value before any sample")
   check(has(j, '"maximum_production_watts":2700000') and has(j, '"solar_watts":100000'), "maximum production and solar in watts")
   check(has(j, '"solar_used_watts":50000') and has(j, '"primary_output_watts":1800000'), "output tier split")
   check(has(j, '"accumulator_discharge_watts":200000') and has(j, '"accumulator_charge_watts":50000'), "accumulator charge/discharge watts")
@@ -148,7 +151,7 @@ do
   M.commands.wiretap({name = "wiretap", tick = g.tick, player_index = 1})
   check(has(M.print_out[#M.print_out], "player.print: {"), "player invocation prints to the player")
   local r = M.remote_interfaces.wiretap
-  check(type(r.stats()) == "table" and type(r.stats_json()) == "string" and r.version() == "1.1.0", "remote interface")
+  check(type(r.stats()) == "table" and type(r.stats_json()) == "string" and r.version() == INFO_VERSION, "remote interface")
   check(r.write_now() == true and #M.files == 3, "remote write_now exports and returns true")
   check(storage.research == nil, "research sample is not game state (no storage write from the spread job)")
 end
@@ -165,9 +168,21 @@ do
   g.tick = g.tick + 600
   refs.player.research_progress = 0.63
   local j = export().data
-  check(has(j, '"consumption_satisfaction_min":0.4'), "minimum satisfaction since the previous export")
+  check(has(j, '"consumption_satisfaction_min":0.4'), "network minimum satisfaction since the previous export")
   check(has(j, '"consumption_satisfaction":0.95'), "instantaneous satisfaction unchanged")
+  -- surface minimum is demand weighted: netA carries all nauvis demand, so it equals the network minimum here
+  check(has(j, '"network_count":2,"production_watts":1860000,"solar_watts":100000'), "nauvis totals intact")
+  check(select(2, j:gsub('"consumption_satisfaction_min":0.4', "")) == 2, "surface weighted minimum follows the only loaded network")
   check(has(j, '"progress_per_minute":0.06') and has(j, '"eta_seconds":370'), "research rate and ETA from two samples")
+  -- a tiny unpowered network must not drag the surface minimum down
+  refs.netB.flow_last_tick.consumption_satisfaction = 0
+  refs.netB.flow_last_tick.maximum_consumption = 1 / 60 -- 1 W of demand
+  sample()
+  g.tick = g.tick + 600
+  j = export().data
+  check(has(j, '"consumption_satisfaction":0,"consumption_satisfaction_min":0,'), "the unpowered network itself reports 0")
+  check(not has(j, '"consumption_satisfaction_min":0,"consumption_watts":1700000'), "surface minimum is not 0 because of the 1 W network")
+  check(has(j, '"consumption_satisfaction_min":0.95,"consumption_watts":1700000'), "surface minimum stays at the weighted value")
   -- a different technology resets the ETA
   g.tick = g.tick + 600
   refs.player.current_research = refs.techs["steel-processing"]
