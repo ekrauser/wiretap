@@ -24,8 +24,10 @@ Factorio (mod/wiretap)  --write_file-->  script-output/wiretap/stats.json
 
 - [Snapshot schema](schema.md): every field the mod writes, its unit and when it is
   absent. Read when building a dashboard or template.
-- [Testing and releasing](releasing.md): running the tests without the game,
-  packaging, uploading to the mod portal, deploying to a local install.
+- [Testing](testing.md): unit tests, the real-engine smoke test in the free headless
+  server, and checking your own save.
+- [Releasing](releasing.md): versioning, packaging, uploading to the mod portal,
+  deploying to a local install.
 
 The repository README has the install and Home Assistant walkthroughs.
 

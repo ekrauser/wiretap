@@ -36,7 +36,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-BRIDGE_VERSION = "1.1.0"
+BRIDGE_VERSION = "1.1.1"
 
 # ----------------------------------------------------------------------------
 # Shared state
@@ -672,6 +672,7 @@ class MqttPublisher:
         self.inst = _slug(self.prefix) or "wiretap"
         self.ha_prefix = (getattr(args, "ha_prefix", None) or "homeassistant").rstrip("/")
         self.flat = getattr(args, "flat", True)
+        self.brownout_below = float(getattr(args, "brownout_below", 0.95) or 0.95)
         self.watch_items = [i.strip() for i in (args.watch_items or "").split(",") if i.strip()]
         self.discovered: set[str] = set()      # object ids with a config on the broker
         self.present: set[str] = set()         # object ids seen in the current publish
@@ -878,9 +879,12 @@ class MqttPublisher:
                 satisfaction = power.get("consumption_satisfaction")
                 satisfaction_min = power.get("consumption_satisfaction_min", satisfaction)
                 if satisfaction is not None:
+                    worst = float(satisfaction_min if satisfaction_min is not None else satisfaction)
                     payload["satisfaction_percent"] = _pct(satisfaction)
                     payload["satisfaction_min_percent"] = _pct(satisfaction_min)
-                    payload["brownout"] = bool(float(satisfaction_min if satisfaction_min is not None else satisfaction) < 0.999)
+                    # brownout: more than --brownout-below of the surface's demand went unmet
+                    # at some point since the previous export (demand-weighted)
+                    payload["brownout"] = bool(worst < self.brownout_below)
                 maximum = power.get("maximum_production_watts")
                 if maximum is not None:
                     payload["headroom_watts"] = max(0.0, float(maximum) - float(power.get("consumption_watts") or 0))
@@ -1153,6 +1157,9 @@ def build_parser() -> argparse.ArgumentParser:
                     help="comma-separated item names to expose as individual HA sensors and flat topics")
     ap.add_argument("--publish-full", action="store_true",
                     help="also publish the entire snapshot to <prefix>/state")
+    ap.add_argument("--brownout-below", type=float, default=0.95,
+                    help="brownout sensor turns on when a surface's demand-weighted satisfaction dropped below this "
+                         "fraction since the previous export (default 0.95, i.e. more than 5%% of demand unmet)")
     ap.add_argument("--no-flat", dest="flat", action="store_false",
                     help="do not publish the flat scalar topics under <prefix>/flat/ (meant for ESPHome)")
     return ap

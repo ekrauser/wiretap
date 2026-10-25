@@ -228,7 +228,8 @@ class FakeClient:
 
 def make_publisher(**overrides):
     args = types.SimpleNamespace(mqtt_prefix="wiretap", watch_items="iron-plate,copper-plate",
-                                 ha_discovery=True, publish_full=False, ha_prefix="homeassistant", flat=True)
+                                 ha_discovery=True, publish_full=False, ha_prefix="homeassistant", flat=True,
+                                 brownout_below=0.95)
     for k, v in overrides.items():
         setattr(args, k, v)
     return wb.MqttPublisher(args, client=FakeClient())
@@ -259,7 +260,7 @@ class Mqtt(unittest.TestCase):
         self.assertEqual(power["satisfaction_min_percent"], 95.0)
         self.assertEqual(power["charge_percent"], 50.0)
         self.assertEqual(power["headroom_watts"], 1000000)
-        self.assertTrue(power["brownout"])
+        self.assertFalse(power["brownout"])  # 95% satisfied is not below the 0.95 default
         self.assertEqual(json.loads(payloads["wiretap/items"])["iron-plate"], 3200)
         self.assertEqual(json.loads(payloads["wiretap/platforms/player_platform_1"])["state"], "on_the_path")
         kills = json.loads(payloads["wiretap/kills/player/nauvis"])
@@ -267,7 +268,7 @@ class Mqtt(unittest.TestCase):
         self.assertTrue(kills["under_attack"])
         # flat scalar topics for microcontrollers: plain text, no JSON
         self.assertEqual(payloads["wiretap/flat/nauvis/power/production_watts"], "1860000")
-        self.assertEqual(payloads["wiretap/flat/nauvis/power/brownout"], "ON")
+        self.assertEqual(payloads["wiretap/flat/nauvis/power/brownout"], "OFF")
         self.assertEqual(payloads["wiretap/flat/nauvis/power/satisfaction_percent"], "95.0")
         self.assertEqual(payloads["wiretap/flat/player/research/current"], "logistics-2")
         self.assertEqual(payloads["wiretap/flat/player/research/progress_percent"], "62.0")
@@ -276,6 +277,19 @@ class Mqtt(unittest.TestCase):
         self.assertEqual(payloads["wiretap/flat/meta/paused"], "OFF")
         self.assertEqual(payloads["wiretap/flat/nauvis/kills/losses_per_minute"], "0.25")
         self.assertEqual(payloads["wiretap/flat/nauvis/evolution"], "0.14")
+
+    def test_brownout_threshold(self):
+        dipped = json.loads(json.dumps(SNAP))
+        dipped["surfaces"]["nauvis"]["power"]["totals"]["consumption_satisfaction_min"] = 0.6
+        pub = make_publisher()
+        pub.publish(dipped)
+        payloads = {t: p for t, p, _ in pub.client.published}
+        self.assertEqual(payloads["wiretap/flat/nauvis/power/brownout"], "ON")
+        self.assertEqual(json.loads(payloads["wiretap/power/nauvis"])["satisfaction_min_percent"], 60.0)
+        strict = make_publisher(brownout_below=0.999)
+        strict.publish(SNAP)
+        payloads = {t: p for t, p, _ in strict.client.published}
+        self.assertEqual(payloads["wiretap/flat/nauvis/power/brownout"], "ON")
 
     def test_discovery_configs(self):
         pub = make_publisher()

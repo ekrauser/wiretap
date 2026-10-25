@@ -28,6 +28,16 @@ The authoritative API reference is the `runtime-api.json` shipped with the game
 (`<Factorio install>/doc-html/runtime-api.json`); the online copy is
 <https://lua-api.factorio.com/latest/>.
 
+## Real-engine checks
+
+Before packaging a release run the headless smoke test, and when a real save is at
+hand the save check (`docs/testing.md`):
+
+```bash
+./scripts/package.sh && ./scripts/smoke-headless.py --download
+./scripts/check-save.py --save <save.zip> --mods-from <mods dir>
+```
+
 ## Versioning
 
 - `mod/wiretap/info.json` `version` is the single source: the mod reads its own
