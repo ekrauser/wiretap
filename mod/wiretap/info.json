@@ -1,9 +1,13 @@
 {
   "name": "wiretap",
-  "version": "1.0.3",
+  "version": "1.1.0",
   "title": "Wiretap – Stats Exporter",
-  "author": "kraus",
-  "factorio_version": "2.0",
-  "description": "Periodically exports game vitals as JSON to script-output: logistic network item counts, electric network production/consumption/accumulator charge per surface, production totals, pollution, research and evolution. Poll it from Home Assistant, Prometheus, MQTT or anything else via the bundled companion bridge, or query live over RCON with /wiretap.",
-  "dependencies": ["base >= 2.0.0"]
+  "author": "drkraus",
+  "contact": "https://github.com/ekrauser/wiretap/issues",
+  "homepage": "https://github.com/ekrauser/wiretap",
+  "factorio_version": "2.1",
+  "description": "Exports factory vitals (power and brownouts, logistics, production, research, kills, space platforms) as JSON every few seconds for Home Assistant, Prometheus, MQTT/ESPHome or RCON.",
+  "dependencies": [
+    "base >= 2.1.15"
+  ]
 }

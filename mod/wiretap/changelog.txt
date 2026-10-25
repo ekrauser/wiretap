@@ -1,4 +1,88 @@
 ---------------------------------------------------------------------------------------------------
+Version: 1.1.0
+Date: 2026-10-24
+  Features:
+    - Factorio 2.1 support. Electric networks are read through the 2.1 LuaElectricNetwork API: a
+      network joined across closed power switches (or a platform's global network) is reported once,
+      keyed by its lowest sub network id, and carries a sub_network_count. Single-group networks keep
+      the key they had in 1.0.x.
+    - Per-network "flow" section (setting "Export power flow and satisfaction", on by default):
+      consumption_satisfaction (1 = no brownout), production_satisfaction, maximum_production_watts,
+      maximum_consumption_watts, solar_watts, transfer_watts. Surface power totals gain
+      consumption_satisfaction (demand-weighted), maximum_production_watts, maximum_consumption_watts
+      and solar_watts.
+    - Space platforms per force (setting "Export space platforms", on by default): state, speed,
+      location, last_location, distance, weight, completed_trips, has_hub and deletion_in_ticks,
+      keyed by the platform's surface name so it joins with the matching surfaces entry.
+    - Production totals broken down by quality (setting "Break down production totals by quality",
+      off by default): items_produced_total_by_quality and items_consumed_total_by_quality.
+    - Surfaces report planet and pollutant (pollution or spores); meta reports game_version; research
+      reports current_units (research units the current technology needs).
+  Changes:
+    - Requires Factorio 2.1. Factorio 2.0 games stay on wiretap 1.0.x.
+    - The snapshot is encoded by the mod instead of helpers.table_to_json, which prints 30+ digit
+      expansions for most fractional numbers. Integers print as integers, fractions with the configured
+      number of decimals (trailing zeros trimmed), object keys are sorted, non-finite numbers become
+      null. The "Number precision" setting now actually shrinks the file.
+    - Accumulator charge and capacity come from the electric network's last-tick flow instead of a scan
+      of every accumulator entity. The "Scan accumulators" setting is gone; charge and capacity are
+      always part of the power section.
+    - The export timer is only re-registered when the interval setting changes.
+---------------------------------------------------------------------------------------------------
+Version: 1.1.0
+Date: 2026-10-25
+  Features:
+    - Factorio 2.1 support. Electric networks are read through the 2.1 LuaElectricNetwork API: a
+      network joined across closed power switches is reported once, keyed by its lowest sub network id,
+      and carries a sub_network_count. Space platform grids keep the key "global".
+    - Per-network "flow" section (setting "Export power flow and satisfaction", on by default):
+      consumption_satisfaction (1 = no brownout) plus consumption_satisfaction_min, the lowest value
+      sampled once a second since the previous export, production_satisfaction, maximum production
+      and consumption, solar offered and used, primary and secondary generation, accumulator charge
+      and discharge watts, transferred watts. Surface totals gain the same aggregates.
+    - Space platforms per force (setting "Export space platforms", on by default): state, paused,
+      speed, location, destination, route, last_location, distance, weight, completed_trips,
+      damaged_tiles, has_hub and deletion_in_ticks, keyed by the platform's surface name.
+    - Research: progress_per_minute and eta_seconds from consecutive exports, current_units,
+      current_unit_energy, current_ingredients, queue_details with the level of each queued entry,
+      technologies_available and technologies_infinite, labs per surface, lab_speed_modifier,
+      enabled, and the effective research rate (science_per_minute, science_per_minute_10m,
+      science_total) from the game's hidden "science" item.
+    - Kills and losses per force and surface, all time and per minute (setting "Export kills and
+      losses", on by default).
+    - Entity build and mine counts per force and surface (setting "Export entity build counts",
+      off by default).
+    - Production totals broken down by quality (setting "Break down production totals by quality",
+      off by default).
+    - Surfaces report planet, pollutant (pollution or spores), daytime, darkness and
+      solar_multiplier. Enemy evolution gains an evolution_by split (pollution, time, spawners) and
+      is no longer listed for platforms.
+    - Meta reports game_version, game_speed, tick_paused, active mods, feature flags and per-player
+      afk_seconds, online_seconds and surface.
+    - Science packs are recognised through the lab inputs (used_by_labs) instead of the name
+      pattern alone, so modded packs with other names are included.
+    - The timer export is spread over consecutive ticks, one surface or force per tick, and written
+      when the last one is done (setting "Spread the export over several ticks", on by default);
+      meta.export_ticks reports the span. Commands and the remote interface still build in one go.
+  Changes:
+    - Requires Factorio 2.1.15 or newer. Factorio 2.0 games stay on wiretap 1.0.x.
+    - The snapshot is encoded by the mod instead of helpers.table_to_json, which prints 30+ digit
+      expansions for most fractional numbers. Integers print as integers, fractions with the configured
+      number of decimals (trailing zeros trimmed; fractions below 1 keep at least three), object keys
+      are sorted, non-finite numbers become null. The "Number precision" setting now actually shrinks
+      the file; its minimum is 1.
+    - Accumulator charge and capacity come from the electric network's last-tick flow instead of a scan
+      of every accumulator entity. The "Scan accumulators" setting is gone; charge and capacity are
+      always part of the power section. Accumulators out of range of every pole are no longer counted.
+    - Networks are dropped only when nothing was ever attached to them; an idle grid with machines
+      stays listed with zeros instead of flickering in and out.
+    - /wiretap write and remote write_now report export failures instead of claiming success; a
+      repeating failure is logged once instead of every interval.
+    - game_time_seconds derives from ticks_played; filename settings trim whitespace; the export
+      timer is re-registered only when the interval changes and heals itself if another mod changes
+      the setting; the mod version in meta comes from the mod list.
+    - Licensed under MIT (LICENSE file added); mod author set to the portal account name.
+---------------------------------------------------------------------------------------------------
 Version: 1.0.3
 Date: 2026-07-19
   Features:

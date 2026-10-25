@@ -1,0 +1,8 @@
+site_name: wiretap
+docs_dir: docs
+plugins:
+  - techdocs-core
+nav:
+  - Home: index.md
+  - Snapshot schema: schema.md
+  - Testing and releasing: releasing.md
